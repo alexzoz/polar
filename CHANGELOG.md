@@ -1,3 +1,7 @@
+## 7.10.1
+
+- Dependency upgrades
+
 ## 7.10.0
 
 - Upgrades Polar SDK to `6.14.0`
