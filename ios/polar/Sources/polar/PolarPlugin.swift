@@ -162,7 +162,7 @@ public class PolarPlugin:
 
       self.searchTask = Task {
         do {
-            for try await data in self.api.searchForDevice() {
+            for try await data in self.api.searchForDevice().values {
                 guard let data = jsonEncode(PolarDeviceInfoCodable(data))
                 else { continue }
                 DispatchQueue.main.async {
@@ -207,7 +207,7 @@ public class PolarPlugin:
   ) async throws {
     let identifier = call.arguments as! String
     
-    let data = try await api.getAvailableOnlineStreamDataTypes(identifier)
+    let data = try await api.getAvailableOnlineStreamDataTypes(identifier).value
     guard let encodedData = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! }) else {
       result(FlutterError(code: "Unable to get available online stream data types", message: nil, details: nil))
       return
@@ -220,7 +220,7 @@ public class PolarPlugin:
   ) async throws {
     let identifier = call.arguments as! String
 
-    let data = try await api.getAvailableHRServiceDataTypes(identifier: identifier)
+    let data = try await api.getAvailableHRServiceDataTypes(identifier: identifier).value
     guard let encodedData = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! }) else {
       result(FlutterError(code: "Unable to get available HR service data types", message: nil, details: nil))
       return
@@ -233,7 +233,7 @@ public class PolarPlugin:
     let identifier = arguments[0] as! String
     let feature = PolarDeviceDataType.allCases[arguments[1] as! Int]
 
-    let data = try await api.requestStreamSettings(identifier, feature: feature)
+    let data = try await api.requestStreamSettings(identifier, feature: feature).value
     guard let encodedData = jsonEncode(PolarSensorSettingCodable(data)) else { return }
     result(encodedData)
   }
@@ -250,21 +250,21 @@ public class PolarPlugin:
       exerciseId: exerciseId,
       interval: interval,
       sampleType: sampleType
-    )
+    ).value
     result(nil)
   }
 
   func stopRecording(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
 
-    try await api.stopRecording(identifier)
+    try await api.stopRecording(identifier).value
     result(nil)
   }
 
   func requestRecordingStatus(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
 
-    let data = try await api.requestRecordingStatus(identifier)
+    let data = try await api.requestRecordingStatus(identifier).value
     result([data.ongoing, data.entryId])
   }
 
@@ -274,7 +274,7 @@ public class PolarPlugin:
     Task {
         do {
             var exercises = [String]()
-            for try await data in api.listExercises(identifier) {
+            for try await data in api.listExercises(identifier).values {
                 guard let encodedData = jsonEncode(PolarExerciseEntryCodable(data)) else { continue }
                 exercises.append(encodedData)
             }
@@ -295,7 +295,7 @@ public class PolarPlugin:
       from: (arguments[1] as! String).data(using: .utf8)!
     ).data
 
-    let data = try await api.fetchExercise(identifier, entry: entry)
+    let data = try await api.fetchExercise(identifier, entry: entry).value
     guard let encodedData = jsonEncode(PolarExerciseDataCodable(data)) else { return }
     result(encodedData)
   }
@@ -308,7 +308,7 @@ public class PolarPlugin:
       from: (arguments[1] as! String).data(using: .utf8)!
     ).data
 
-    try await api.removeExercise(identifier, entry: entry)
+    try await api.removeExercise(identifier, entry: entry).value
     result(nil)
   }
 
@@ -320,7 +320,7 @@ public class PolarPlugin:
       from: (arguments[1] as! String).data(using: .utf8)!
     ).data
     
-    try await api.setLedConfig(identifier, ledConfig: config)
+    try await api.setLedConfig(identifier, ledConfig: config).value
     result(nil)
   }
 
@@ -329,25 +329,25 @@ public class PolarPlugin:
     let identifier = arguments[0] as! String
     let preservePairingInformation = arguments[1] as! Bool
     
-    try await api.doFactoryReset(identifier, preservePairingInformation: preservePairingInformation)
+    try await api.doFactoryReset(identifier, preservePairingInformation: preservePairingInformation).value
     result(nil)
   }
 
   func enableSdkMode(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
-    try await api.enableSDKMode(identifier)
+    try await api.enableSDKMode(identifier).value
     result(nil)
   }
 
   func disableSdkMode(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
-    try await api.disableSDKMode(identifier)
+    try await api.disableSDKMode(identifier).value
     result(nil)
   }
 
   func isSdkModeEnabled(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
-    let isEnabled = try await api.isSDKModeEnabled(identifier)
+    let isEnabled = try await api.isSDKModeEnabled(identifier).value
     result(isEnabled)
   }
 
@@ -359,14 +359,14 @@ public class PolarPlugin:
       from: (arguments[1] as! String).data(using: .utf8)!
     ).data
 
-    try await api.doFirstTimeUse(identifier, ftuConfig: config)
+    try await api.doFirstTimeUse(identifier, ftuConfig: config).value
     result(nil)
   }
 
   func isFtuDone(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
 
-    let isDone = try await api.isFtuDone(identifier)
+    let isDone = try await api.isFtuDone(identifier).value
     result(isDone)
   }
 
@@ -522,43 +522,43 @@ class StreamingChannel: NSObject, FlutterStreamHandler {
         do {
             switch feature {
             case .ecg:
-                for try await data in api.startEcgStreaming(identifier, settings: settings!) {
+                for try await data in api.startEcgStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             case .acc:
-                for try await data in api.startAccStreaming(identifier, settings: settings!) {
+                for try await data in api.startAccStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             case .ppg:
-                for try await data in api.startPpgStreaming(identifier, settings: settings!) {
+                for try await data in api.startPpgStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             case .ppi:
-                for try await data in api.startPpiStreaming(identifier) {
+                for try await data in api.startPpiStreaming(identifier).values {
                     handleData(data, events: events)
                 }
             case .gyro:
-                for try await data in api.startGyroStreaming(identifier, settings: settings!) {
+                for try await data in api.startGyroStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             case .magnetometer:
-                for try await data in api.startMagnetometerStreaming(identifier, settings: settings!) {
+                for try await data in api.startMagnetometerStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             case .hr:
-                for try await data in api.startHrStreaming(identifier) {
+                for try await data in api.startHrStreaming(identifier).values {
                     handleData(data, events: events)
                 }
             case .temperature:
-                for try await data in api.startTemperatureStreaming(identifier, settings: settings!) {
+                for try await data in api.startTemperatureStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             case .pressure:
-                for try await data in api.startPressureStreaming(identifier, settings: settings!) {
+                for try await data in api.startPressureStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             case .skinTemperature:
-                for try await data in api.startSkinTemperatureStreaming(identifier, settings: settings!) {
+                for try await data in api.startSkinTemperatureStreaming(identifier, settings: settings!).values {
                     handleData(data, events: events)
                 }
             }
