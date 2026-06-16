@@ -40,7 +40,10 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
-import io.reactivex.rxjava3.disposables.Disposable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.lang.reflect.Type
 import java.util.Date
 import java.util.UUID
@@ -230,7 +233,7 @@ class PolarPlugin :
 
     private val searchHandler =
         object : EventChannel.StreamHandler {
-            private var searchSubscription: Disposable? = null
+            private var searchJob: Job? = null
 
             override fun onListen(
                 arguments: Any?,
@@ -238,20 +241,20 @@ class PolarPlugin :
             ) {
                 initApi()
 
-                searchSubscription =
-                    wrapper.api.searchForDevice().subscribe({
-                        runOnUiThread { events.success(gson.toJson(it)) }
-                    }, {
-                        runOnUiThread {
-                            events.error(it.toString(), it.message, null)
+                searchJob = CoroutineScope(Dispatchers.Main).launch {
+                    try {
+                        wrapper.api.searchForDevice().collect {
+                            events.success(gson.toJson(it))
                         }
-                    }, {
-                        runOnUiThread { events.endOfStream() }
-                    })
+                        events.endOfStream()
+                    } catch (e: Exception) {
+                        events.error(e.toString(), e.message, null)
+                    }
+                }
             }
 
             override fun onCancel(arguments: Any?) {
-                searchSubscription?.dispose()
+                searchJob?.cancel()
             }
         }
 
@@ -308,16 +311,14 @@ class PolarPlugin :
     ) {
         val identifier = call.arguments as String
 
-        wrapper.api
-            .getAvailableOnlineStreamDataTypes(identifier)
-            .subscribe({
-                runOnUiThread { result.success(gson.toJson(it)) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val dataTypes = wrapper.api.getAvailableOnlineStreamDataTypes(identifier)
+                result.success(gson.toJson(dataTypes))
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun getAvailableHrServiceDataTypes(
@@ -326,16 +327,14 @@ class PolarPlugin :
     ) {
         val identifier = call.arguments as String
 
-        wrapper.api
-            .getAvailableHRServiceDataTypes(identifier)
-            .subscribe({
-                runOnUiThread { result.success(gson.toJson(it)) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val dataTypes = wrapper.api.getAvailableHRServiceDataTypes(identifier)
+                result.success(gson.toJson(dataTypes))
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun requestStreamSettings(
@@ -346,16 +345,14 @@ class PolarPlugin :
         val identifier = arguments[0] as String
         val feature = gson.fromJson(arguments[1] as String, PolarDeviceDataType::class.java)
 
-        wrapper.api
-            .requestStreamSettings(identifier, feature)
-            .subscribe({
-                runOnUiThread { result.success(gson.toJson(it)) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val settings = wrapper.api.requestStreamSettings(identifier, feature)
+                result.success(gson.toJson(settings))
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun startRecording(
@@ -368,16 +365,14 @@ class PolarPlugin :
         val interval = gson.fromJson(arguments[2] as String, RecordingInterval::class.java)
         val sampleType = gson.fromJson(arguments[3] as String, SampleType::class.java)
 
-        wrapper.api
-            .startRecording(identifier, exerciseId, interval, sampleType)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.startRecording(identifier, exerciseId, interval, sampleType)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun stopRecording(
@@ -386,16 +381,14 @@ class PolarPlugin :
     ) {
         val identifier = call.arguments as String
 
-        wrapper.api
-            .stopRecording(identifier)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.stopRecording(identifier)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun requestRecordingStatus(
@@ -404,16 +397,14 @@ class PolarPlugin :
     ) {
         val identifier = call.arguments as String
 
-        wrapper.api
-            .requestRecordingStatus(identifier)
-            .subscribe({
-                runOnUiThread { result.success(listOf(it.first, it.second)) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val status = wrapper.api.requestRecordingStatus(identifier)
+                result.success(listOf(status.first, status.second))
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun listExercises(
@@ -422,19 +413,17 @@ class PolarPlugin :
     ) {
         val identifier = call.arguments as String
 
-        val exercises = mutableListOf<String>()
-        wrapper.api
-            .listExercises(identifier)
-            .subscribe({
-                exercises.add(gson.toJson(it))
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val exercises = mutableListOf<String>()
+                wrapper.api.listExercises(identifier).collect {
+                    exercises.add(gson.toJson(it))
                 }
-            }, {
                 result.success(exercises)
-            })
-            .discard()
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun fetchExercise(
@@ -445,16 +434,14 @@ class PolarPlugin :
         val identifier = arguments[0] as String
         val entry = gson.fromJson(arguments[1] as String, PolarExerciseEntry::class.java)
 
-        wrapper.api
-            .fetchExercise(identifier, entry)
-            .subscribe({
-                result.success(gson.toJson(it))
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val data = wrapper.api.fetchExercise(identifier, entry)
+                result.success(gson.toJson(data))
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun removeExercise(
@@ -465,16 +452,14 @@ class PolarPlugin :
         val identifier = arguments[0] as String
         val entry = gson.fromJson(arguments[1] as String, PolarExerciseEntry::class.java)
 
-        wrapper.api
-            .removeExercise(identifier, entry)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.removeExercise(identifier, entry)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun setLedConfig(
@@ -485,16 +470,14 @@ class PolarPlugin :
         val identifier = arguments[0] as String
         val config = gson.fromJson(arguments[1] as String, LedConfig::class.java)
 
-        wrapper.api
-            .setLedConfig(identifier, config)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.setLedConfig(identifier, config)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun doFactoryReset(
@@ -505,16 +488,14 @@ class PolarPlugin :
         val identifier = arguments[0] as String
         val preservePairingInformation = arguments[1] as Boolean
 
-        wrapper.api
-            .doFactoryReset(identifier, preservePairingInformation)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.doFactoryReset(identifier)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun enableSdkMode(
@@ -522,16 +503,14 @@ class PolarPlugin :
         result: Result,
     ) {
         val identifier = call.arguments as String
-        wrapper.api
-            .enableSDKMode(identifier)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.enableSDKMode(identifier)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun disableSdkMode(
@@ -539,16 +518,14 @@ class PolarPlugin :
         result: Result,
     ) {
         val identifier = call.arguments as String
-        wrapper.api
-            .disableSDKMode(identifier)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.disableSDKMode(identifier)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun isSdkModeEnabled(
@@ -556,16 +533,14 @@ class PolarPlugin :
         result: Result,
     ) {
         val identifier = call.arguments as String
-        wrapper.api
-            .isSDKModeEnabled(identifier)
-            .subscribe({
-                runOnUiThread { result.success(it) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val enabled = wrapper.api.isSDKModeEnabled(identifier)
+                result.success(enabled)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun doFirstTimeUse(
@@ -576,16 +551,14 @@ class PolarPlugin :
         val identifier = arguments[0] as String
         val ftuConfig = gson.fromJson(arguments[1] as String, PolarFirstTimeUseConfig::class.java)
 
-        wrapper.api
-            .doFirstTimeUse(identifier, ftuConfig)
-            .subscribe({
-                runOnUiThread { result.success(null) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                wrapper.api.doFirstTimeUse(identifier, ftuConfig)
+                result.success(null)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     private fun isFtuDone(
@@ -594,16 +567,14 @@ class PolarPlugin :
     ) {
         val identifier = call.arguments as String
 
-        wrapper.api
-            .isFtuDone(identifier)
-            .subscribe({ isFtuDone ->
-                runOnUiThread { result.success(isFtuDone) }
-            }, {
-                runOnUiThread {
-                    result.error(it.toString(), it.message, null)
-                }
-            })
-            .discard()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val isDone = wrapper.api.isFtuDone(identifier)
+                result.success(isDone)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
     }
 }
 
@@ -657,6 +628,16 @@ class PolarWrapper(
         feature: PolarBleSdkFeature,
     ) {
         success("sdkFeatureReady", listOf(identifier, feature.name))
+    }
+
+    override fun bleSdkFeaturesReadiness(
+        identifier: String,
+        ready: List<PolarBleSdkFeature>,
+        unavailable: List<PolarBleSdkFeature>,
+    ) {
+        ready.forEach { feature ->
+            success("sdkFeatureReady", listOf(identifier, feature.name))
+        }
     }
 
     override fun deviceConnected(polarDeviceInfo: PolarDeviceInfo) {
@@ -736,7 +717,7 @@ class StreamingChannel(
     private val feature: PolarDeviceDataType,
     private val channel: EventChannel = EventChannel(messenger, name),
 ) : EventChannel.StreamHandler {
-    private var subscription: Disposable? = null
+    private var streamJob: Job? = null
 
     init {
         channel.setStreamHandler(this)
@@ -802,24 +783,24 @@ class StreamingChannel(
                 }
             }
 
-        subscription =
-            stream.subscribe({
-                runOnUiThread { events.success(gson.toJson(it)) }
-            }, {
-                runOnUiThread {
-                    events.error(it.toString(), it.message, null)
+        streamJob = CoroutineScope(Dispatchers.Main).launch {
+            try {
+                stream.collect {
+                    events.success(gson.toJson(it))
                 }
-            }, {
-                runOnUiThread { events.endOfStream() }
-            })
+                events.endOfStream()
+            } catch (e: Exception) {
+                events.error(e.toString(), e.message, null)
+            }
+        }
     }
 
     override fun onCancel(arguments: Any?) {
-        subscription?.dispose()
+        streamJob?.cancel()
     }
 
     fun dispose() {
-        subscription?.dispose()
+        streamJob?.cancel()
         channel.setStreamHandler(null)
     }
 }

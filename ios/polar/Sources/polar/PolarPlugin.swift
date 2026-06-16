@@ -1,7 +1,6 @@
 import CoreBluetooth
 import Flutter
 import PolarBleSdk
-import RxSwift
 import UIKit
 
 private let encoder = JSONEncoder()
@@ -89,54 +88,56 @@ public class PolarPlugin:
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     initApi()
 
-    do {
-      switch call.method {
-      case "connectToDevice":
-        try api.connectToDevice(call.arguments as! String)
-        result(nil)
-      case "disconnectFromDevice":
-        try api.disconnectFromDevice(call.arguments as! String)
-        result(nil)
-      case "getAvailableOnlineStreamDataTypes":
-        getAvailableOnlineStreamDataTypes(call, result)
-      case "getAvailableHrServiceDataTypes":
-        getAvailableHrServiceDataTypes(call, result)
-      case "requestStreamSettings":
-        try requestStreamSettings(call, result)
-      case "createStreamingChannel":
-        createStreamingChannel(call, result)
-      case "startRecording":
-        startRecording(call, result)
-      case "stopRecording":
-        stopRecording(call, result)
-      case "requestRecordingStatus":
-        requestRecordingStatus(call, result)
-      case "listExercises":
-        listExercises(call, result)
-      case "fetchExercise":
-        fetchExercise(call, result)
-      case "removeExercise":
-        removeExercise(call, result)
-      case "setLedConfig":
-        setLedConfig(call, result)
-      case "doFactoryReset":
-        doFactoryReset(call, result)
-      case "enableSdkMode":
-        enableSdkMode(call, result)
-      case "disableSdkMode":
-        disableSdkMode(call, result)
-      case "isSdkModeEnabled":
-        isSdkModeEnabled(call, result)
-      case "doFirstTimeUse":
-        doFirstTimeUse(call, result)
-      case "isFtuDone":
-        isFtuDone(call, result)
-      default: result(FlutterMethodNotImplemented)
+    Task {
+      do {
+        switch call.method {
+        case "connectToDevice":
+          try api.connectToDevice(call.arguments as! String)
+          result(nil)
+        case "disconnectFromDevice":
+          try api.disconnectFromDevice(call.arguments as! String)
+          result(nil)
+        case "getAvailableOnlineStreamDataTypes":
+          try await getAvailableOnlineStreamDataTypes(call, result)
+        case "getAvailableHrServiceDataTypes":
+          try await getAvailableHrServiceDataTypes(call, result)
+        case "requestStreamSettings":
+          try await requestStreamSettings(call, result)
+        case "createStreamingChannel":
+          createStreamingChannel(call, result)
+        case "startRecording":
+          try await startRecording(call, result)
+        case "stopRecording":
+          try await stopRecording(call, result)
+        case "requestRecordingStatus":
+          try await requestRecordingStatus(call, result)
+        case "listExercises":
+          listExercises(call, result)
+        case "fetchExercise":
+          try await fetchExercise(call, result)
+        case "removeExercise":
+          try await removeExercise(call, result)
+        case "setLedConfig":
+          try await setLedConfig(call, result)
+        case "doFactoryReset":
+          try await doFactoryReset(call, result)
+        case "enableSdkMode":
+          try await enableSdkMode(call, result)
+        case "disableSdkMode":
+          try await disableSdkMode(call, result)
+        case "isSdkModeEnabled":
+          try await isSdkModeEnabled(call, result)
+        case "doFirstTimeUse":
+          try await doFirstTimeUse(call, result)
+        case "isFtuDone":
+          try await isFtuDone(call, result)
+        default: result(FlutterMethodNotImplemented)
+        }
+      } catch {
+        result(
+          FlutterError(
+            code: "Error in Polar plugin", message: error.localizedDescription, details: nil))
       }
-    } catch {
-      result(
-        FlutterError(
-          code: "Error in Polar plugin", message: error.localizedDescription, details: nil))
     }
   }
 
@@ -154,36 +155,36 @@ public class PolarPlugin:
     return nil
   }
 
-  var searchSubscription: Disposable?
+  var searchTask: Task<Void, Never>?
   lazy var searchHandler = StreamHandler(
     onListen: { _, events in
       self.initApi()
 
-      self.searchSubscription = self.api.searchForDevice().subscribe(
-        onNext: { data in
-          guard let data = jsonEncode(PolarDeviceInfoCodable(data))
-          else { return }
-          DispatchQueue.main.async {
-            events(data)
-          }
-        },
-        onError: { error in
-          DispatchQueue.main.async {
-            events(
-              FlutterError(
-                code: "Error in searchForDevice", message: error.localizedDescription, details: nil)
-            )
-          }
-        },
-        onCompleted: {
-          DispatchQueue.main.async {
-            events(FlutterEndOfEventStream)
-          }
-        })
+      self.searchTask = Task {
+        do {
+            for try await data in self.api.searchForDevice() {
+                guard let data = jsonEncode(PolarDeviceInfoCodable(data))
+                else { continue }
+                DispatchQueue.main.async {
+                    events(data)
+                }
+            }
+            DispatchQueue.main.async {
+                events(FlutterEndOfEventStream)
+            }
+        } catch {
+            DispatchQueue.main.async {
+                events(
+                    FlutterError(
+                        code: "Error in searchForDevice", message: error.localizedDescription, details: nil)
+                )
+            }
+        }
+      }
       return nil
     },
     onCancel: { _ in
-      self.searchSubscription?.dispose()
+      self.searchTask?.cancel()
       return nil
     })
 
@@ -203,266 +204,154 @@ public class PolarPlugin:
 
   func getAvailableOnlineStreamDataTypes(
     _ call: FlutterMethodCall, _ result: @escaping FlutterResult
-  ) {
+  ) async throws {
     let identifier = call.arguments as! String
-
-    _ = api.getAvailableOnlineStreamDataTypes(identifier).subscribe(
-      onSuccess: { data in
-        guard let data = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! })
-        else {
-          result(
-            FlutterError(
-              code: "Unable to get available online stream data types", message: nil, details: nil
-            ))
-          return
-        }
-        result(data)
-      },
-      onFailure: {
-        result(
-          FlutterError(
-            code: "Unable to get available online stream data types",
-            message: $0.localizedDescription, details: nil))
-      })
+    
+    let data = try await api.getAvailableOnlineStreamDataTypes(identifier)
+    guard let encodedData = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! }) else {
+      result(FlutterError(code: "Unable to get available online stream data types", message: nil, details: nil))
+      return
+    }
+    result(encodedData)
   }
 
   func getAvailableHrServiceDataTypes(
     _ call: FlutterMethodCall, _ result: @escaping FlutterResult
-  ) {
+  ) async throws {
     let identifier = call.arguments as! String
 
-    _ = api.getAvailableHRServiceDataTypes(identifier: identifier).subscribe(
-      onSuccess: { data in
-        guard let data = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! })
-        else {
-          result(
-            FlutterError(
-              code: "Unable to get available HR service data types", message: nil, details: nil
-            ))
-          return
-        }
-        result(data)
-      },
-      onFailure: {
-        result(
-          FlutterError(
-            code: "Unable to get available HR service data types",
-            message: $0.localizedDescription, details: nil))
-      })
+    let data = try await api.getAvailableHRServiceDataTypes(identifier: identifier)
+    guard let encodedData = jsonEncode(data.map { PolarDeviceDataType.allCases.firstIndex(of: $0)! }) else {
+      result(FlutterError(code: "Unable to get available HR service data types", message: nil, details: nil))
+      return
+    }
+    result(encodedData)
   }
 
-  func requestStreamSettings(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) throws {
+  func requestStreamSettings(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let arguments = call.arguments as! [Any]
     let identifier = arguments[0] as! String
     let feature = PolarDeviceDataType.allCases[arguments[1] as! Int]
 
-    _ = api.requestStreamSettings(identifier, feature: feature).subscribe(
-      onSuccess: { data in
-        guard let data = jsonEncode(PolarSensorSettingCodable(data))
-        else { return }
-        result(data)
-      },
-      onFailure: {
-        result(
-          FlutterError(
-            code: "Unable to request stream settings", message: $0.localizedDescription,
-            details: nil))
-      })
+    let data = try await api.requestStreamSettings(identifier, feature: feature)
+    guard let encodedData = jsonEncode(PolarSensorSettingCodable(data)) else { return }
+    result(encodedData)
   }
 
-  func startRecording(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func startRecording(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let arguments = call.arguments as! [Any]
     let identifier = arguments[0] as! String
     let exerciseId = arguments[1] as! String
     let interval = RecordingInterval(rawValue: arguments[2] as! Int)!
     let sampleType = SampleType(rawValue: arguments[3] as! Int)!
 
-    _ = api.startRecording(
+    try await api.startRecording(
       identifier,
       exerciseId: exerciseId,
       interval: interval,
       sampleType: sampleType
-    ).subscribe(
-      onCompleted: {
-        result(nil)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error starting recording", message: error.localizedDescription, details: nil))
-      })
+    )
+    result(nil)
   }
 
-  func stopRecording(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func stopRecording(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
 
-    _ = api.stopRecording(identifier).subscribe(
-      onCompleted: {
-        result(nil)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error stopping recording", message: error.localizedDescription, details: nil))
-      })
+    try await api.stopRecording(identifier)
+    result(nil)
   }
 
-  func requestRecordingStatus(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func requestRecordingStatus(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
 
-    _ = api.requestRecordingStatus(identifier).subscribe(
-      onSuccess: { data in
-        result([data.ongoing, data.entryId])
-      },
-      onFailure: { error in
-        result(
-          FlutterError(
-            code: "Error stopping recording", message: error.localizedDescription, details: nil))
-      })
+    let data = try await api.requestRecordingStatus(identifier)
+    result([data.ongoing, data.entryId])
   }
 
   func listExercises(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
     let identifier = call.arguments as! String
 
-    var exercises = [String]()
-    _ = api.fetchStoredExerciseList(identifier).subscribe(
-      onNext: { data in
-        guard let data = jsonEncode(PolarExerciseEntryCodable(data))
-        else {
-          return
+    Task {
+        do {
+            var exercises = [String]()
+            for try await data in api.listExercises(identifier) {
+                guard let encodedData = jsonEncode(PolarExerciseEntryCodable(data)) else { continue }
+                exercises.append(encodedData)
+            }
+            DispatchQueue.main.async { result(exercises) }
+        } catch {
+            DispatchQueue.main.async {
+                result(FlutterError(code: "Error listing exercises", message: error.localizedDescription, details: nil))
+            }
         }
-        exercises.append(data)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error listing exercises", message: error.localizedDescription, details: nil))
-      },
-      onCompleted: {
-        result(exercises)
-      })
+    }
   }
 
-  func fetchExercise(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func fetchExercise(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let arguments = call.arguments as! [Any]
     let identifier = arguments[0] as! String
     let entry = try! decoder.decode(
       PolarExerciseEntryCodable.self,
-      from: (arguments[1] as! String)
-        .data(using: .utf8)!
+      from: (arguments[1] as! String).data(using: .utf8)!
     ).data
 
-    _ = api.fetchExercise(identifier, entry: entry).subscribe(
-      onSuccess: { data in
-        guard let data = jsonEncode(PolarExerciseDataCodable(data))
-        else {
-          return
-        }
-        result(data)
-      },
-      onFailure: { error in
-        result(
-          FlutterError(
-            code: "Error  fetching exercise", message: error.localizedDescription, details: nil))
-      })
+    let data = try await api.fetchExercise(identifier, entry: entry)
+    guard let encodedData = jsonEncode(PolarExerciseDataCodable(data)) else { return }
+    result(encodedData)
   }
 
-  func removeExercise(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func removeExercise(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let arguments = call.arguments as! [Any]
     let identifier = arguments[0] as! String
     let entry = try! decoder.decode(
       PolarExerciseEntryCodable.self,
-      from: (arguments[1] as! String)
-        .data(using: .utf8)!
+      from: (arguments[1] as! String).data(using: .utf8)!
     ).data
 
-    _ = api.removeExercise(identifier, entry: entry).subscribe(
-      onCompleted: {
-        result(nil)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error removing exercise", message: error.localizedDescription, details: nil))
-      })
+    try await api.removeExercise(identifier, entry: entry)
+    result(nil)
   }
 
-  func setLedConfig(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func setLedConfig(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let arguments = call.arguments as! [Any]
     let identifier = arguments[0] as! String
     let config = try! decoder.decode(
       LedConfigCodable.self,
-      from: (arguments[1] as! String)
-        .data(using: .utf8)!
+      from: (arguments[1] as! String).data(using: .utf8)!
     ).data
-    _ = api.setLedConfig(identifier, ledConfig: config).subscribe(
-      onCompleted: {
-        result(nil)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error setting led config", message: error.localizedDescription, details: nil))
-      })
+    
+    try await api.setLedConfig(identifier, ledConfig: config)
+    result(nil)
   }
 
-  func doFactoryReset(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func doFactoryReset(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let arguments = call.arguments as! [Any]
     let identifier = arguments[0] as! String
     let preservePairingInformation = arguments[1] as! Bool
-    _ = api.doFactoryReset(identifier, preservePairingInformation: preservePairingInformation)
-      .subscribe(
-        onCompleted: {
-          result(nil)
-        },
-        onError: { error in
-          result(
-            FlutterError(
-              code: "Error doing factory reset", message: error.localizedDescription, details: nil))
-        })
+    
+    try await api.doFactoryReset(identifier, preservePairingInformation: preservePairingInformation)
+    result(nil)
   }
 
-  func enableSdkMode(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func enableSdkMode(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
-    _ = api.enableSDKMode(identifier).subscribe(
-      onCompleted: {
-        result(nil)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error enabling SDK mode", message: error.localizedDescription, details: nil))
-      })
+    try await api.enableSDKMode(identifier)
+    result(nil)
   }
 
-  func disableSdkMode(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func disableSdkMode(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
-    _ = api.disableSDKMode(identifier).subscribe(
-      onCompleted: {
-        result(nil)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error disabling SDK mode", message: error.localizedDescription, details: nil))
-      })
+    try await api.disableSDKMode(identifier)
+    result(nil)
   }
 
-  func isSdkModeEnabled(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func isSdkModeEnabled(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
-    _ = api.isSDKModeEnabled(identifier).subscribe(
-      onSuccess: {
-        result($0)
-      },
-      onFailure: { error in
-        result(
-          FlutterError(
-            code: "Error checking SDK mode status", message: error.localizedDescription,
-            details: nil))
-      })
+    let isEnabled = try await api.isSDKModeEnabled(identifier)
+    result(isEnabled)
   }
 
-  func doFirstTimeUse(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func doFirstTimeUse(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let arguments = call.arguments as! [Any]
     let identifier = arguments[0] as! String
     let config = try! decoder.decode(
@@ -470,38 +359,15 @@ public class PolarPlugin:
       from: (arguments[1] as! String).data(using: .utf8)!
     ).data
 
-    _ = api.doFirstTimeUse(identifier, ftuConfig: config).subscribe(
-      onCompleted: {
-        result(nil)
-      },
-      onError: { error in
-        result(
-          FlutterError(
-            code: "Error doing first time use",
-            message: error.localizedDescription,
-            details: nil
-          ))
-      }
-    )
+    try await api.doFirstTimeUse(identifier, ftuConfig: config)
+    result(nil)
   }
 
-  func isFtuDone(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+  func isFtuDone(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
     let identifier = call.arguments as! String
 
-    _ = api.isFtuDone(identifier).subscribe(
-      onSuccess: { isFtuDone in
-        result(isFtuDone)
-      },
-      onFailure: { error in
-        result(
-          FlutterError(
-            code: "Error checking FTU status",
-            message: error.localizedDescription,
-            details: nil
-          )
-        )
-      }
-    )
+    let isDone = try await api.isFtuDone(identifier)
+    result(isDone)
   }
 
   private func success(_ event: String, data: Any? = nil) {
@@ -618,23 +484,7 @@ class StreamHandler: NSObject, FlutterStreamHandler {
   }
 }
 
-protocol AnyObservable {
-  func anySubscribe(
-    onNext: ((Any) -> Void)?,
-    onError: ((Swift.Error) -> Void)?,
-    onCompleted: (() -> Void)?
-  ) -> Disposable
-}
 
-extension Observable: AnyObservable {
-  public func anySubscribe(
-    onNext: ((Any) -> Void)? = nil,
-    onError: ((Swift.Error) -> Void)? = nil,
-    onCompleted: (() -> Void)? = nil
-  ) -> Disposable {
-    subscribe(onNext: onNext, onError: onError, onCompleted: onCompleted)
-  }
-}
 
 class StreamingChannel: NSObject, FlutterStreamHandler {
   let api: PolarBleApi
@@ -642,7 +492,7 @@ class StreamingChannel: NSObject, FlutterStreamHandler {
   let feature: PolarDeviceDataType
   let channel: FlutterEventChannel
 
-  var subscription: Disposable?
+  var streamingTask: Task<Void, Never>?
 
   init(
     _ messenger: FlutterBinaryMessenger, _ name: String, _ api: PolarBleApi, _ identifier: String,
@@ -668,62 +518,77 @@ class StreamingChannel: NSObject, FlutterStreamHandler {
         .data(using: .utf8)!
     ).data
 
-    let stream: AnyObservable
-    switch feature {
-    case .ecg:
-      stream = api.startEcgStreaming(identifier, settings: settings!)
-    case .acc:
-      stream = api.startAccStreaming(identifier, settings: settings!)
-    case .ppg:
-      stream = api.startPpgStreaming(identifier, settings: settings!)
-    case .ppi:
-      stream = api.startPpiStreaming(identifier)
-    case .gyro:
-      stream = api.startGyroStreaming(identifier, settings: settings!)
-    case .magnetometer:
-      stream = api.startMagnetometerStreaming(identifier, settings: settings!)
-    case .hr:
-      stream = api.startHrStreaming(identifier)
-    case .temperature:
-      stream = api.startTemperatureStreaming(identifier, settings: settings!)
-    case .pressure:
-      stream = api.startPressureStreaming(identifier, settings: settings!)
-    case .skinTemperature:
-      stream = api.startSkinTemperatureStreaming(identifier, settings: settings!)
+    streamingTask = Task {
+        do {
+            switch feature {
+            case .ecg:
+                for try await data in api.startEcgStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            case .acc:
+                for try await data in api.startAccStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            case .ppg:
+                for try await data in api.startPpgStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            case .ppi:
+                for try await data in api.startPpiStreaming(identifier) {
+                    handleData(data, events: events)
+                }
+            case .gyro:
+                for try await data in api.startGyroStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            case .magnetometer:
+                for try await data in api.startMagnetometerStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            case .hr:
+                for try await data in api.startHrStreaming(identifier) {
+                    handleData(data, events: events)
+                }
+            case .temperature:
+                for try await data in api.startTemperatureStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            case .pressure:
+                for try await data in api.startPressureStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            case .skinTemperature:
+                for try await data in api.startSkinTemperatureStreaming(identifier, settings: settings!) {
+                    handleData(data, events: events)
+                }
+            }
+            DispatchQueue.main.async {
+                events(FlutterEndOfEventStream)
+            }
+        } catch {
+            DispatchQueue.main.async {
+                events(FlutterError(code: "Error while streaming", message: error.localizedDescription, details: nil))
+            }
+        }
     }
-
-    subscription = stream.anySubscribe(
-      onNext: { data in
-        guard let data = jsonEncode(PolarDataCodable(data)) else {
-          return
-        }
-        DispatchQueue.main.async {
-          events(data)
-        }
-      },
-      onError: { error in
-        DispatchQueue.main.async {
-          events(
-            FlutterError(
-              code: "Error while streaming", message: error.localizedDescription, details: nil))
-        }
-      },
-      onCompleted: {
-        DispatchQueue.main.async {
-          events(FlutterEndOfEventStream)
-        }
-      })
 
     return nil
   }
+  
+  private func handleData(_ data: Any, events: @escaping FlutterEventSink) {
+    guard let encodedData = jsonEncode(PolarDataCodable(data)) else { return }
+    DispatchQueue.main.async {
+      events(encodedData)
+    }
+  }
 
   func onCancel(withArguments arguments: Any?) -> FlutterError? {
-    subscription?.dispose()
+    streamingTask?.cancel()
     return nil
   }
 
   func dispose() {
-    subscription?.dispose()
+    streamingTask?.cancel()
     channel.setStreamHandler(nil)
   }
 }
