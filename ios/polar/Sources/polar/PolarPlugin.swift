@@ -131,6 +131,8 @@ public class PolarPlugin:
           try await doFirstTimeUse(call, result)
         case "isFtuDone":
           try await isFtuDone(call, result)
+        case "getSleep":
+          try await getSleep(call, result)
         default: result(FlutterMethodNotImplemented)
         }
       } catch {
@@ -368,6 +370,41 @@ public class PolarPlugin:
 
     let isDone = try await api.isFtuDone(identifier).value
     result(isDone)
+  }
+
+  func getSleep(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) async throws {
+    let arguments = call.arguments as! [Any?]
+    let identifier = arguments[0] as! String
+    
+    let dateFormatter = ISO8601DateFormatter()
+    dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    
+    var fromDate: Date? = nil
+    if let fromDateString = arguments[1] as? String {
+        fromDate = dateFormatter.date(from: fromDateString) ?? ISO8601DateFormatter().date(from: fromDateString)
+    }
+    
+    var toDate: Date? = nil
+    if let toDateString = arguments[2] as? String {
+        toDate = dateFormatter.date(from: toDateString) ?? ISO8601DateFormatter().date(from: toDateString)
+    }
+    
+    let now = Date()
+    let data = try await api.getSleep(
+        identifier: identifier, 
+        fromDate: fromDate ?? now.addingTimeInterval(-30 * 24 * 60 * 60), 
+        toDate: toDate ?? now
+    ).value
+    
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let encodedData = try encoder.encode(data)
+    guard let jsonArray = try JSONSerialization.jsonObject(with: encodedData, options: []) as? [[String: Any]] else {
+        result([])
+        return
+    }
+    
+    result(jsonArray)
   }
 
   private func success(_ event: String, data: Any? = nil) {

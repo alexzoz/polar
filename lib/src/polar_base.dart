@@ -665,4 +665,29 @@ class Polar {
     }
     return result;
   }
+
+  /// Get sleep data from Polar device.
+  /// - Parameters:
+  ///   - identifier: Polar device id or UUID
+  ///   - fromDate: Optional start date for sleep data
+  ///   - toDate: Optional end date for sleep data
+  /// - Returns: A Future containing a list of `PolarSleepAnalysisResult`
+  Future<List<PolarSleepAnalysisResult>> getSleep(
+    String identifier, {
+    DateTime? fromDate,
+    DateTime? toDate,
+  }) async {
+    final result = await _methodChannel.invokeListMethod<Map<dynamic, dynamic>>(
+      'getSleep',
+      [
+        identifier,
+        fromDate?.toIso8601String(),
+        toDate?.toIso8601String(),
+      ],
+    );
+    if (result == null) return [];
+    return result
+        .map((e) => PolarSleepAnalysisResult.fromJson(e.cast<String, dynamic>()))
+        .toList();
+  }
 }

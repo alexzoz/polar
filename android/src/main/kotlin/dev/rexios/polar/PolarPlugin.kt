@@ -68,7 +68,11 @@ private fun runOnUiThread(runnable: () -> Unit) {
     Handler(Looper.getMainLooper()).post { runnable() }
 }
 
-private val gson = GsonBuilder().registerTypeAdapter(Date::class.java, DateSerializer).create()
+private val gson = GsonBuilder()
+    .registerTypeAdapter(Date::class.java, DateSerializer)
+    .registerTypeAdapter(java.time.ZonedDateTime::class.java, JsonSerializer<java.time.ZonedDateTime> { src, _, _ -> JsonPrimitive(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(src)) })
+    .registerTypeAdapter(java.time.LocalDate::class.java, JsonSerializer<java.time.LocalDate> { src, _, _ -> JsonPrimitive(src.toString()) })
+    .create()
 
 private var wrapperInternal: PolarWrapper? = null
 private val wrapper: PolarWrapper
@@ -210,6 +214,10 @@ class PolarPlugin :
 
             "isFtuDone" -> {
                 isFtuDone(call, result)
+            }
+
+            "getSleep" -> {
+                getSleep(call, result)
             }
 
             else -> {
@@ -571,6 +579,35 @@ class PolarPlugin :
             try {
                 val isDone = wrapper.api.isFtuDone(identifier)
                 result.success(isDone)
+            } catch (e: Exception) {
+                result.error(e.toString(), e.message, null)
+            }
+        }
+    }
+
+    private fun getSleep(
+        call: MethodCall,
+        result: Result,
+    ) {
+        val arguments = call.arguments as List<*>
+        val identifier = arguments[0] as String
+        val fromDateStr = arguments[1] as String?
+        val toDateStr = arguments[2] as String?
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val fromDate = fromDateStr?.let { java.time.ZonedDateTime.parse(it).toLocalDate() } ?: java.time.LocalDate.now().minusDays(30)
+                val toDate = toDateStr?.let { java.time.ZonedDateTime.parse(it).toLocalDate() } ?: java.time.LocalDate.now()
+
+                val data = wrapper.api.getSleep(identifier, fromDate, toDate)
+                // map to inner result to match iOS JSON structure
+                val results = data.map { it.result }
+                val encodedData = gson.toJson(results)
+                
+                // Decode it into a List of Maps to send over MethodChannel
+                val listType = object : com.google.gson.reflect.TypeToken<List<Map<String, Any>>>() {}.type
+                val decodedData: List<Map<String, Any>> = gson.fromJson(encodedData, listType)
+                result.success(decodedData)
             } catch (e: Exception) {
                 result.error(e.toString(), e.message, null)
             }
