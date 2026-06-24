@@ -734,7 +734,8 @@ class PolarWrapper(
         identifier: String,
         powerSourcesState: PowerSourcesState,
     ) {
-        TODO("Not yet implemented")
+        // Not forwarded to Flutter — no-op to prevent crash (native SDK calls
+        // this when device reports power source state, e.g. USB vs battery).
     }
 
     @Deprecated("", replaceWith = ReplaceWith(""))
